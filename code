@@ -1,0 +1,114 @@
+import numpy as np
+
+# =========================
+# Parameters
+# =========================
+T = 5000
+tau_self = 4
+alpha = 0.2
+k = 1.0
+
+rho = 0.8
+sigma_e = 1.0
+sigma_xi = 0.5
+
+eta_L = 0.001
+eta_R = 0.001
+
+# =========================
+# Signal generation
+# =========================
+rng = np.random.default_rng(0)
+
+m = rng.normal(0, 1, T)
+
+e = np.zeros(T)
+for t in range(1, T):
+    e[t] = rho * e[t - 1] + rng.normal(0, sigma_e)
+
+xi = rng.normal(0, sigma_xi, T)
+
+# =========================
+# Simulation function
+# =========================
+def run_simulation(tau_world, motor_noise=0.0):
+    s = np.zeros(T)
+
+    for t in range(T):
+        if t - tau_world >= 0:
+            s[t] = k * m[t - tau_world] + e[t] + xi[t]
+        else:
+            s[t] = e[t] + xi[t]
+
+    e_self = alpha * e
+    s_self = np.zeros(T)
+    for t in range(T):
+        if t - tau_world >= 0:
+            s_self[t] = k * m[t - tau_world] + e_self[t] + xi[t]
+        else:
+            s_self[t] = e_self[t] + xi[t]
+
+    w_L = 0.0
+    a_R = 0.0
+
+    eps_L = np.zeros(T)
+    eps_R = np.zeros(T)
+    A = np.zeros(T)
+
+    for t in range(T):
+        if t - tau_self >= 0:
+            m_tilde = m[t - tau_self] + rng.normal(0, motor_noise)
+            y_L = w_L * m_tilde
+        else:
+            y_L = 0.0
+
+        if t - 1 >= 0:
+            y_R = a_R * s_self[t - 1]
+        else:
+            y_R = 0.0
+
+        eps_L[t] = s_self[t] - y_L
+        eps_R[t] = s_self[t] - y_R
+
+        if t - tau_self >= 0:
+            w_L += eta_L * eps_L[t] * m_tilde
+
+        if t - 1 >= 0:
+            a_R += eta_R * eps_R[t] * s_self[t - 1]
+
+        A[t] = np.abs(eps_R[t]) - np.abs(eps_L[t])
+
+    return A
+
+# =========================
+# Delay sweep
+# =========================
+taus = range(0, 10)
+A_mean = []
+
+for tau_world in taus:
+    A = run_simulation(tau_world)
+    A_mean.append(np.mean(A[T // 2:]))
+
+A_mean = np.array(A_mean)
+
+# =========================
+# Critical delay
+# =========================
+tau_c = None
+for i in range(len(A_mean)):
+    if A_mean[i] < 0:
+        tau_c = taus[i]
+        break
+
+# =========================
+# Motor noise sweep
+# =========================
+motor_noises = np.linspace(0, 2.0, 10)
+A_noise = []
+
+for mn in motor_noises:
+    A = run_simulation(tau_self, motor_noise=mn)
+    A_noise.append(np.mean(A[T // 2:]))
+
+A_noise = np.array(A_noise)
